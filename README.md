@@ -3,27 +3,27 @@
 This is the open-source workspace for the Linux screenshot daemon and
 standalone region selector.
 
-The real source remains in the monorepo at:
+The source is synchronized from the monorepo path:
 
 ```text
 rust/apps/screenshot-daemon
 ```
 
-This shadow workspace exposes the project in a smaller open-source-oriented
-shape without duplicating source files.
+This workspace exposes the project in a smaller open-source-oriented shape.
 
-`Cargo.toml` at this folder is a real workspace manifest. The project folder is
-a shadow link to the monorepo source.
+`Cargo.toml` at this folder is a real workspace manifest. The
+`screenshot-daemon/` package folder is a real directory so GitHub displays the
+source files normally.
 
-## Shadow Folders
+## Synced Folders
 
 | Folder | Purpose |
 | --- | --- |
-| `screenshot-daemon/` | shadow folder for the full package; builds both binaries |
+| `screenshot-daemon/` | synced package folder for the full package; builds both binaries |
 
-The mapping is recorded at `../mapping.md`. Packaged runtime output lives in
-the main workdir at `../../release/screenshot-tool`, outside this open-source
-repo.
+The mapping is recorded at `../mapping.md`. Run
+`./scripts/sync_screenshot_daemon.sh` to refresh this folder from the monorepo
+source. Packaged runtime output lives in `release/`.
 
 ## Binaries
 
@@ -57,6 +57,39 @@ rust/target/release/screenshot-daemon
 rust/target/release/region-selector
 ```
 
+## Release
+
+Create a small optimized Linux x86_64 release folder:
+
+```bash
+./scripts/release_folder.sh
+```
+
+The release folder is written to:
+
+```text
+release/screenshot-tool-v0.1.0-linux-x86_64
+```
+
+Pack that folder into a shareable `.7z`:
+
+```bash
+./scripts/pack_to_7z.sh release/screenshot-tool-v0.1.0-linux-x86_64
+```
+
+The archive is written next to the folder:
+
+```text
+release/screenshot-tool-v0.1.0-linux-x86_64.7z
+```
+
+You can override the release folder version name:
+
+```bash
+./scripts/release_folder.sh 0.1.1
+./scripts/pack_to_7z.sh release/screenshot-tool-v0.1.1-linux-x86_64
+```
+
 ## Run
 
 Daemon mode:
@@ -73,6 +106,6 @@ Standalone region selector:
 
 ## Requirements
 
-- Linux with X11
+- Linux desktop with X11 or Wayland
 - access to input events for global hotkey detection
 - screenshot output directory such as `~/Pictures/screenshots`
