@@ -1,1 +1,0 @@
-../../../rust/apps/screenshot-daemon/start.sh

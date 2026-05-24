@@ -1,29 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
-    "daemon",
-    "region-selector",
+    "screenshot-daemon",
 ]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-
-[workspace.dependencies]
-anyhow = "1"
-arboard = "3"
-chrono = "0.4"
-dirs = "6"
-eframe = "0.30"
-egui = "0.30"
-env_logger = "0.11"
-evdev = "0.12"
-futures-lite = "2"
-image = "0.25"
-libc = "0.2"
-libwayshot = "0.7"
-log = "0.4"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process", "fs", "signal"] }
-x11rb = { version = "0.13", features = ["shm"] }
-zbus = "5"

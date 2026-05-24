@@ -9,21 +9,21 @@ The real source remains in the monorepo at:
 rust/apps/screenshot-daemon
 ```
 
-This shadow workspace exposes the project in a smaller open-source-oriented shape
-without duplicating source files.
+This shadow workspace exposes the project in a smaller open-source-oriented
+shape without duplicating source files.
 
-`Cargo.toml` at this folder is a real workspace manifest. The Rust source files
-inside the member crates are shadow links to the monorepo source.
+`Cargo.toml` at this folder is a real workspace manifest. The project folder is
+a shadow link to the monorepo source.
 
 ## Shadow Folders
 
 | Folder | Purpose |
 | --- | --- |
-| `daemon/` | shadow folder for the `screenshot-daemon` binary |
-| `region-selector/` | shadow folder for the standalone `region-selector` binary |
-| `release/` | packaged binaries, systemd units, runbook, and release docs |
+| `screenshot-daemon/` | shadow folder for the full package; builds both binaries |
 
-The mapping is recorded at `../mapping.md`.
+The mapping is recorded at `../mapping.md`. Packaged runtime output lives in
+the main workdir at `../../release/screenshot-tool`, outside this open-source
+repo.
 
 ## Binaries
 
