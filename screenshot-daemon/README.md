@@ -62,4 +62,4 @@ region-selector --output ~/Pictures/screenshots/shot.png
 
 ## License
 
-MIT
+Apache-2.0
