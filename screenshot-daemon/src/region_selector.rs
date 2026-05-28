@@ -888,15 +888,14 @@ impl eframe::App for App {
 // ── X11 fullscreen capture ────────────────────────────────────────────
 
 fn capture_fullscreen() -> anyhow::Result<image::RgbaImage> {
-    // Try X11 first, fall back to grim (Wayland)
     match capture_fullscreen_x11() {
         Ok(img) => {
             eprintln!("[region-selector] X11 capture OK");
             Ok(img)
         }
         Err(e) => {
-            eprintln!("[region-selector] X11 capture failed: {}, trying grim", e);
-            capture_fullscreen_grim()
+            eprintln!("[region-selector] X11 capture failed: {}, trying wayshot", e);
+            capture_fullscreen_wayshot()
         }
     }
 }
@@ -930,26 +929,15 @@ fn capture_fullscreen_x11() -> anyhow::Result<image::RgbaImage> {
     image::RgbaImage::from_raw(w, h, rgba).ok_or_else(|| anyhow::anyhow!("failed to create image"))
 }
 
-fn capture_fullscreen_grim() -> anyhow::Result<image::RgbaImage> {
-    let tmp = std::path::PathBuf::from("/tmp/screenshot-daemon-grim-capture.png");
-    let _ = std::fs::remove_file(&tmp);
-    eprintln!("[region-selector] grim saving to: {:?}", tmp);
-    let status = std::process::Command::new("grim").arg(&tmp).status()?;
-    eprintln!("[region-selector] grim exit={}", status);
-    if !status.success() {
-        anyhow::bail!("grim exited with status {}", status);
-    }
-    if !tmp.exists() {
-        anyhow::bail!("grim reported success but file not found: {:?}", tmp);
-    }
-    let img = image::open(&tmp)?.to_rgba8();
+fn capture_fullscreen_wayshot() -> anyhow::Result<image::RgbaImage> {
+    let conn = libwayshot::WayshotConnection::new()?;
+    let img = conn.screenshot_all(false)?;
     eprintln!(
-        "[region-selector] grim image loaded: {}x{}",
+        "[region-selector] wayshot image loaded: {}x{}",
         img.width(),
         img.height()
     );
-    let _ = std::fs::remove_file(&tmp);
-    Ok(img)
+    Ok(img.to_rgba8())
 }
 
 // ── Draw annotations onto image ───────────────────────────────────────

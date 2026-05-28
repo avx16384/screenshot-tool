@@ -1,6 +1,4 @@
 use futures_lite::StreamExt;
-/// D-Bus notification via org.freedesktop.Notifications.
-/// Supports click-to-open the saved screenshot.
 use zbus::{proxy, Connection};
 
 #[proxy(
@@ -23,6 +21,20 @@ trait Notifications {
 
     #[zbus(signal)]
     fn action_invoked(&self, id: u32, action_key: &str);
+}
+
+#[proxy(
+    interface = "org.freedesktop.portal.OpenURI",
+    default_service = "org.freedesktop.portal.Desktop",
+    default_path = "/org/freedesktop/portal/desktop"
+)]
+trait OpenURI {
+    fn open_file(
+        &self,
+        parent_window: &str,
+        fd: zbus::zvariant::OwnedFd,
+        options: std::collections::HashMap<&str, zbus::zvariant::Value<'_>>,
+    ) -> zbus::Result<()>;
 }
 
 pub async fn send_notification(summary: &str, body: &str) -> anyhow::Result<u32> {
@@ -56,7 +68,6 @@ pub async fn send_notification_with_open(
         )
         .await?;
 
-    // If we have a path to open, listen for ActionInvoked signal
     if let Some(path) = open_path {
         let path_owned = path.to_string();
         tokio::spawn(async move {
@@ -68,16 +79,13 @@ pub async fn send_notification_with_open(
                 Ok(s) => s,
                 Err(_) => return,
             };
-            // Wait for our notification's action (with timeout)
             let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(6);
             loop {
                 match tokio::time::timeout_at(deadline, stream.next()).await {
                     Ok(Some(msg)) => {
                         if let Ok(args) = msg.args() {
                             if args.id == id && args.action_key == "open" {
-                                let _ = std::process::Command::new("xdg-open")
-                                    .arg(&path_owned)
-                                    .spawn();
+                                open_file_via_portal(&path_owned).await.ok();
                                 return;
                             }
                         }
@@ -89,4 +97,19 @@ pub async fn send_notification_with_open(
     }
 
     Ok(id)
+}
+
+async fn open_file_via_portal(path: &str) -> anyhow::Result<()> {
+    let connection = Connection::session().await?;
+    let proxy = OpenURIProxy::new(&connection).await?;
+
+    let file = std::fs::File::open(path)?;
+    let owned_fd: std::os::fd::OwnedFd = file.into();
+    let fd = zbus::zvariant::OwnedFd::from(owned_fd);
+
+    proxy
+        .open_file("", fd, std::collections::HashMap::new())
+        .await?;
+
+    Ok(())
 }

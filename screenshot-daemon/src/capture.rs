@@ -1,5 +1,3 @@
-/// Screenshot capture for X11 and Wayland.
-/// Supports fullscreen and region selection.
 use std::path::Path;
 
 pub struct RawPixels {
@@ -7,8 +5,6 @@ pub struct RawPixels {
     pub height: u32,
     pub data: Vec<u8>,
 }
-
-// ── X11 Fullscreen ────────────────────────────────────────────────────
 
 pub fn capture_x11() -> anyhow::Result<RawPixels> {
     use x11rb::connection::Connection;
@@ -48,18 +44,12 @@ pub fn capture_x11() -> anyhow::Result<RawPixels> {
     })
 }
 
-// ── Wayland Fullscreen (native wlr-screencopy via libwayshot) ────────
-
 pub fn capture_wayland_image() -> anyhow::Result<image::RgbaImage> {
     let conn = libwayshot::WayshotConnection::new()?;
     let img = conn.screenshot_all(false)?;
     Ok(img.to_rgba8())
 }
 
-// ── Region (spawn region-selector subprocess) ────────────────────────
-
-/// Capture region: pre-capture fullscreen as background, then spawn region-selector.
-/// On Wayland, uses native wlr-screencopy API; on X11, region-selector captures itself.
 pub async fn capture_region(
     path: &Path,
     display_server: &crate::detect::DisplayServer,
@@ -70,7 +60,6 @@ pub async fn capture_region(
         .unwrap_or_else(|| std::path::Path::new("."));
     let selector = dir.join("region-selector");
 
-    // On Wayland, capture fullscreen BEFORE spawning the overlay window
     let bg_path = std::env::temp_dir().join("screenshot-daemon-bg.png");
     let _ = std::fs::remove_file(&bg_path);
     let has_bg = match display_server {
@@ -81,15 +70,8 @@ pub async fn capture_region(
                     true
                 }
                 Err(e) => {
-                    log::warn!(
-                        "Wayland native capture failed ({}), falling back to grim",
-                        e
-                    );
-                    let status = tokio::process::Command::new("grim")
-                        .arg(&bg_path)
-                        .status()
-                        .await?;
-                    status.success() && bg_path.exists()
+                    log::warn!("Wayland native capture failed: {e}");
+                    false
                 }
             }
         }
@@ -125,29 +107,8 @@ pub async fn capture_region(
     anyhow::bail!("unexpected region-selector output: {}", stdout);
 }
 
-// ── Wayland Fullscreen save to file ──────────────────────────────────
-
 pub async fn capture_wayland(path: &Path) -> anyhow::Result<()> {
-    // Try native API first, fall back to grim
-    match capture_wayland_image() {
-        Ok(img) => {
-            img.save(path)?;
-            Ok(())
-        }
-        Err(e) => {
-            log::warn!(
-                "Wayland native capture failed ({}), falling back to grim",
-                e
-            );
-            let path_str = path.to_string_lossy().to_string();
-            let status = tokio::process::Command::new("grim")
-                .arg(&path_str)
-                .status()
-                .await?;
-            if !status.success() {
-                anyhow::bail!("grim exited with status {}", status);
-            }
-            Ok(())
-        }
-    }
+    let img = capture_wayland_image()?;
+    img.save(path)?;
+    Ok(())
 }

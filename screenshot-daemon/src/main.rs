@@ -1,11 +1,14 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 mod capture;
 mod clipboard;
+mod deps;
 mod detect;
 mod hotkey;
 mod notify;
+mod recorder;
 
 /// Configuration
 struct Config {
@@ -27,15 +30,29 @@ async fn main() -> anyhow::Result<()> {
     let display_server = detect::detect_display_server();
     log::info!("display server: {:?}", display_server);
 
+    let dep_results = deps::check_dependencies();
+    let dep_report = deps::format_dep_report(&dep_results);
+    for line in dep_report.lines() {
+        log::info!("{}", line);
+    }
+
+    if deps::has_missing_required(&dep_results) {
+        log::warn!("missing required dependencies!");
+        spawn_deps_dialog(&dep_report);
+    }
+
     let hotkeys = vec![
         hotkey::Hotkey::parse("fullscreen", "Ctrl+Shift+P")?,
         hotkey::Hotkey::parse("region", "Ctrl+Alt+A")?,
+        hotkey::Hotkey::parse("record", "Ctrl+Alt+R")?,
     ];
     for hk in &hotkeys {
         log::info!("hotkey: {} → {:?}", hk.label, hk);
     }
 
     let config = Config { save_dir };
+
+    let shared_recorder: recorder::SharedRecorder = Arc::new(Mutex::new(recorder::Recorder::new(&display_server)));
 
     let shutdown = Arc::new(tokio::sync::Notify::new());
     let shutdown_clone = shutdown.clone();
@@ -115,6 +132,46 @@ async fn main() -> anyhow::Result<()> {
                             }
                         }
                     }
+                    hotkey::HotkeyAction::Record => {
+                        log::info!("record video triggered");
+                        let mut rec = shared_recorder.lock().await;
+                        if rec.is_recording() {
+                            log::info!("already recording, stopping");
+                            match rec.stop().await {
+                                Ok(path) => {
+                                    log::info!("recording saved: {}", path.display());
+                                    if let Err(e) = notify::send_notification_with_open(
+                                        "Recording saved",
+                                        &format!("Saved to {}", path.display()),
+                                        Some(path.to_string_lossy().as_ref()),
+                                    ).await {
+                                        log::warn!("notification failed: {e}");
+                                    }
+                                }
+                                Err(e) => {
+                                    log::error!("stop recording failed: {e}");
+                                }
+                            }
+                        } else {
+                            match rec.start().await {
+                                Ok(()) => {
+                                    log::info!("recording started");
+                                    let output_path = rec.output_path().to_string_lossy().to_string();
+                                    drop(rec);
+                                    spawn_record_control(&output_path, shared_recorder.clone());
+                                }
+                                Err(e) => {
+                                    log::error!("start recording failed: {e}");
+                                    if let Err(ne) = notify::send_notification(
+                                        "Recording failed",
+                                        &e.to_string(),
+                                    ).await {
+                                        log::warn!("notification failed: {ne}");
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
             _ = shutdown.notified() => {
@@ -173,4 +230,117 @@ async fn capture_region_screenshot(
         Some(()) => Ok(Some(path)),
         None => Ok(None),
     }
+}
+
+fn spawn_record_control(
+    _output_path: &str,
+    shared_recorder: recorder::SharedRecorder,
+) {
+    let self_exe = std::env::current_exe().ok();
+    let dir = self_exe
+        .as_ref()
+        .and_then(|e| e.parent())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let control_bin = dir.join("record-control");
+
+    let recorder_clone = shared_recorder.clone();
+    tokio::spawn(async move {
+        let mut child = match tokio::process::Command::new(&control_bin)
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                log::error!("failed to spawn record-control: {e}");
+                return;
+            }
+        };
+
+        if let Some(pid) = child.id() {
+            log::info!("record-control spawned (pid {})", pid);
+            let mut rec = recorder_clone.lock().await;
+            rec.set_control_pid(pid);
+            drop(rec);
+        }
+
+        let stdout = child.stdout.take();
+        if let Some(out) = stdout {
+            use tokio::io::{AsyncBufReadExt, BufReader};
+            let reader = BufReader::new(out);
+            let mut lines = reader.lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                match line.as_str() {
+                    "stopped" => {
+                        log::info!("record-control reported stop");
+                        let mut rec = recorder_clone.lock().await;
+                        if rec.is_recording() {
+                            match rec.stop().await {
+                                Ok(path) => {
+                                    log::info!("recording saved: {}", path.display());
+                                    if let Err(e) = notify::send_notification_with_open(
+                                        "Recording saved",
+                                        &format!("Saved to {}", path.display()),
+                                        Some(path.to_string_lossy().as_ref()),
+                                    ).await {
+                                        log::warn!("notification failed: {e}");
+                                    }
+                                }
+                                Err(e) => {
+                                    log::error!("stop recording failed: {e}");
+                                }
+                            }
+                        }
+                    }
+                    "paused" => {
+                        log::info!("record-control reported pause");
+                        let mut rec = recorder_clone.lock().await;
+                        if let Err(e) = rec.toggle_pause().await {
+                            log::error!("pause recording failed: {e}");
+                        }
+                    }
+                    "resumed" => {
+                        log::info!("record-control reported resume");
+                        let mut rec = recorder_clone.lock().await;
+                        if let Err(e) = rec.toggle_pause().await {
+                            log::error!("resume recording failed: {e}");
+                        }
+                    }
+                    "cancelled" => {
+                        log::info!("record-control cancelled");
+                    }
+                    other => {
+                        log::debug!("record-control output: {}", other);
+                    }
+                }
+            }
+        }
+
+        let _ = child.wait().await;
+    });
+}
+
+fn spawn_deps_dialog(report: &str) {
+    let self_exe = std::env::current_exe().ok();
+    let dir = self_exe
+        .as_ref()
+        .and_then(|e| e.parent())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let dialog_bin = dir.join("deps-dialog");
+
+    let report = report.to_string();
+    tokio::spawn(async move {
+        match tokio::process::Command::new(&dialog_bin)
+            .arg(&report)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(mut child) => {
+                let _ = child.wait().await;
+            }
+            Err(e) => {
+                log::error!("failed to spawn deps-dialog: {e}");
+            }
+        }
+    });
 }

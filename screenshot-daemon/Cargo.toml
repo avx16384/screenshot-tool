@@ -3,7 +3,7 @@ name = "screenshot-daemon"
 version = "0.1.0"
 edition = "2021"
 description = "Linux screenshot daemon with region selection, annotation tools, and D-Bus notification"
-license = "Apache-2.0"
+license = "MIT"
 keywords = ["screenshot", "linux", "annotation", "daemon", "x11"]
 categories = ["command-line-utilities", "gui", "multimedia::images"]
 readme = "README.md"
@@ -18,6 +18,14 @@ path = "src/main.rs"
 name = "region-selector"
 path = "src/region_selector.rs"
 
+[[bin]]
+name = "record-control"
+path = "src/record_control.rs"
+
+[[bin]]
+name = "deps-dialog"
+path = "src/deps_dialog.rs"
+
 # The region-selector is also available as a standalone CLI tool
 
 [dependencies]
@@ -30,10 +38,11 @@ chrono = "0.4"
 dirs = "6"
 log = "0.4"
 env_logger = "0.11"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process", "fs", "signal"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process", "fs", "signal", "io-util"] }
 libc = "0.2"
 anyhow = "1"
 futures-lite = "2"
 arboard = "3"
 eframe = "0.30"
 egui = "0.30"
+ffmpeg-next = { version = "7.1.0", default-features = false, features = ["codec", "format", "software-scaling"] }

@@ -167,6 +167,7 @@ fn key_matches(target: &Key, pressed: Key) -> bool {
 pub enum HotkeyAction {
     Fullscreen,
     Region,
+    Record,
 }
 
 /// Listen for multiple hotkeys. Sends action via watch channel.
@@ -239,6 +240,7 @@ pub fn listen(
                                 triggered_keys.insert(key);
                                 let action = match hk.label.as_str() {
                                     "region" => HotkeyAction::Region,
+                                    "record" => HotkeyAction::Record,
                                     _ => HotkeyAction::Fullscreen,
                                 };
                                 pending_actions.push(action);
