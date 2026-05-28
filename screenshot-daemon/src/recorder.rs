@@ -23,7 +23,7 @@ impl Recorder {
             .join("screencasts");
         let _ = std::fs::create_dir_all(&save_dir);
         let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-        let filename = format!("recording_{}.mp4", timestamp);
+        let filename = format!("recording_{}.webm", timestamp);
         let output_path = save_dir.join(&filename);
 
         Self {
@@ -143,8 +143,8 @@ fn run_recording_loop(
     let mut output = ffmpeg::format::output(output_path)
         .map_err(|e| anyhow::anyhow!("open output failed: {e}"))?;
 
-    let codec = ffmpeg::encoder::find(ffmpeg::codec::Id::H264)
-        .ok_or_else(|| anyhow::anyhow!("H264 encoder not found"))?;
+    let codec = ffmpeg::encoder::find(ffmpeg::codec::Id::VP9)
+        .ok_or_else(|| anyhow::anyhow!("VP9 encoder not found"))?;
 
     let global_header = output.format().flags().contains(ffmpeg::format::Flags::GLOBAL_HEADER);
 
@@ -159,16 +159,16 @@ fn run_recording_loop(
     encoder.set_format(ffmpeg::util::format::pixel::Pixel::YUV420P);
     encoder.set_time_base((1, fps as i32));
     encoder.set_frame_rate(Some((fps as i32, 1)));
-    encoder.set_gop(fps);
-    encoder.set_max_b_frames(0);
 
     if global_header {
         encoder.set_flags(ffmpeg::codec::Flags::GLOBAL_HEADER);
     }
 
     let mut encoder_options = ffmpeg::Dictionary::new();
-    encoder_options.set("preset", "fast");
-    encoder_options.set("crf", "23");
+    encoder_options.set("crf", "30");
+    encoder_options.set("b:v", "0");
+    encoder_options.set("deadline", "realtime");
+    encoder_options.set("cpu-used", "8");
 
     let opened_encoder = encoder
         .open_as_with(codec, encoder_options)

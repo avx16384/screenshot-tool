@@ -24,6 +24,7 @@ pub fn check_dependencies() -> Vec<DepInfo> {
     deps.push(check_lib("libavcodec", true));
     deps.push(check_lib("libavformat", true));
     deps.push(check_lib("libswscale", true));
+    deps.push(check_shared_lib("libvpx", "libvpx.so", true));
 
     deps
 }
@@ -50,6 +51,39 @@ fn check_lib(name: &'static str, required: bool) -> DepInfo {
             installed: false,
             version: None,
         },
+    }
+}
+
+fn check_shared_lib(name: &'static str, soname: &'static str, required: bool) -> DepInfo {
+    let pkg = check_lib(name, required);
+    if pkg.installed {
+        return pkg;
+    }
+
+    let output = std::process::Command::new("ldconfig")
+        .args(["-p"])
+        .output();
+
+    if let Ok(out) = output {
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        for line in stdout.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with(soname) {
+                return DepInfo {
+                    name,
+                    required,
+                    installed: true,
+                    version: Some("linked".to_string()),
+                };
+            }
+        }
+    }
+
+    DepInfo {
+        name,
+        required,
+        installed: false,
+        version: None,
     }
 }
 
