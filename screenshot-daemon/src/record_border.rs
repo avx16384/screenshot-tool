@@ -10,12 +10,58 @@ impl eframe::App for RedBorderOverlay {
         egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(egui::Color32::TRANSPARENT))
             .show(ctx, |ui| {
-                let rect = ui.max_rect();
                 let painter = ui.painter();
+                let border = egui::Rect::from_min_max(
+                    egui::pos2(self.x as f32, self.y as f32),
+                    egui::pos2((self.x + self.w) as f32, (self.y + self.h) as f32),
+                );
                 painter.rect_stroke(
-                    rect.shrink(2.0),
+                    border.shrink(1.5),
                     0.0,
-                    egui::Stroke::new(3.0, egui::Color32::from_rgba_unmultiplied(255, 50, 50, 180)),
+                    egui::Stroke::new(
+                        3.0,
+                        egui::Color32::from_rgba_unmultiplied(255, 50, 50, 180),
+                    ),
+                );
+                let corner_len = 12.0;
+                let corner_thick = 4.0;
+                let corner_color =
+                    egui::Color32::from_rgba_unmultiplied(255, 80, 80, 220);
+                let tl = border.min;
+                let tr = egui::pos2(border.max.x, border.min.y);
+                let bl = egui::pos2(border.min.x, border.max.y);
+                let br = border.max;
+                painter.line_segment(
+                    [tl, tl + egui::vec2(corner_len, 0.0)],
+                    egui::Stroke::new(corner_thick, corner_color),
+                );
+                painter.line_segment(
+                    [tl, tl + egui::vec2(0.0, corner_len)],
+                    egui::Stroke::new(corner_thick, corner_color),
+                );
+                painter.line_segment(
+                    [tr, tr + egui::vec2(-corner_len, 0.0)],
+                    egui::Stroke::new(corner_thick, corner_color),
+                );
+                painter.line_segment(
+                    [tr, tr + egui::vec2(0.0, corner_len)],
+                    egui::Stroke::new(corner_thick, corner_color),
+                );
+                painter.line_segment(
+                    [bl, bl + egui::vec2(corner_len, 0.0)],
+                    egui::Stroke::new(corner_thick, corner_color),
+                );
+                painter.line_segment(
+                    [bl, bl + egui::vec2(0.0, -corner_len)],
+                    egui::Stroke::new(corner_thick, corner_color),
+                );
+                painter.line_segment(
+                    [br, br + egui::vec2(-corner_len, 0.0)],
+                    egui::Stroke::new(corner_thick, corner_color),
+                );
+                painter.line_segment(
+                    [br, br + egui::vec2(0.0, -corner_len)],
+                    egui::Stroke::new(corner_thick, corner_color),
                 );
             });
         ctx.request_repaint();
@@ -37,11 +83,11 @@ fn main() -> eframe::Result<()> {
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_position(egui::Pos2::new(x as f32, y as f32))
-            .with_inner_size(egui::vec2(w as f32, h as f32))
+            .with_fullscreen(true)
             .with_decorations(false)
             .with_always_on_top()
             .with_transparent(true)
+            .with_mouse_passthrough(true)
             .with_resizable(false)
             .with_title("Recording Border"),
         ..Default::default()
