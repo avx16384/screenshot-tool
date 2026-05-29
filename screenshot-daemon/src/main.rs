@@ -153,21 +153,41 @@ async fn main() -> anyhow::Result<()> {
                                 }
                             }
                         } else {
-                            match rec.start().await {
-                                Ok(()) => {
-                                    log::info!("recording started");
-                                    let output_path = rec.output_path().to_string_lossy().to_string();
-                                    drop(rec);
-                                    spawn_record_control(&output_path, shared_recorder.clone());
+                            drop(rec);
+                            match capture::select_record_region(&display_server).await {
+                                Ok(Some(region)) => {
+                                    let mut rec = shared_recorder.lock().await;
+                                    rec.set_region(region);
+                                    match rec.start().await {
+                                        Ok(()) => {
+                                            log::info!("recording started");
+                                            let output_path = rec.output_path().to_string_lossy().to_string();
+                                            let rec_region = rec.region();
+                                            drop(rec);
+                                            spawn_record_control(&output_path, shared_recorder.clone());
+                                            if let Some(r) = rec_region {
+                                                spawn_record_border(r, shared_recorder.clone());
+                                            } else {
+                                                let (w, h) = detect_screen_size_sync(&display_server);
+                                                spawn_record_border((0, 0, w, h), shared_recorder.clone());
+                                            }
+                                        }
+                                        Err(e) => {
+                                            log::error!("start recording failed: {e}");
+                                            if let Err(ne) = notify::send_notification(
+                                                "Recording failed",
+                                                &e.to_string(),
+                                            ).await {
+                                                log::warn!("notification failed: {ne}");
+                                            }
+                                        }
+                                    }
+                                }
+                                Ok(None) => {
+                                    log::info!("record region selection cancelled");
                                 }
                                 Err(e) => {
-                                    log::error!("start recording failed: {e}");
-                                    if let Err(ne) = notify::send_notification(
-                                        "Recording failed",
-                                        &e.to_string(),
-                                    ).await {
-                                        log::warn!("notification failed: {ne}");
-                                    }
+                                    log::error!("record region selection failed: {e}");
                                 }
                             }
                         }
@@ -343,4 +363,67 @@ fn spawn_deps_dialog(report: &str) {
             }
         }
     });
+}
+
+fn spawn_record_border(
+    region: (i32, i32, u32, u32),
+    shared_recorder: recorder::SharedRecorder,
+) {
+    let self_exe = std::env::current_exe().ok();
+    let dir = self_exe
+        .as_ref()
+        .and_then(|e| e.parent())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let border_bin = dir.join("record-border");
+
+    let (x, y, w, h) = region;
+    tokio::spawn(async move {
+        let mut child = match tokio::process::Command::new(&border_bin)
+            .arg(x.to_string())
+            .arg(y.to_string())
+            .arg(w.to_string())
+            .arg(h.to_string())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                log::error!("failed to spawn record-border: {e}");
+                return;
+            }
+        };
+
+        if let Some(pid) = child.id() {
+            log::info!("record-border spawned (pid {})", pid);
+            let mut rec = shared_recorder.lock().await;
+            rec.set_border_pid(pid);
+            drop(rec);
+        }
+
+        let _ = child.wait().await;
+    });
+}
+
+fn detect_screen_size_sync(display_server: &detect::DisplayServer) -> (u32, u32) {
+    match display_server {
+        detect::DisplayServer::X11 => {
+            use x11rb::connection::Connection;
+            if let Ok((conn, screen_num)) = x11rb::rust_connection::RustConnection::connect(None) {
+                let screen = &conn.setup().roots[screen_num];
+                return (
+                    screen.width_in_pixels as u32,
+                    screen.height_in_pixels as u32,
+                );
+            }
+        }
+        detect::DisplayServer::Wayland | detect::DisplayServer::Unknown => {
+            if let Ok(conn) = libwayshot::WayshotConnection::new() {
+                if let Ok(img) = conn.screenshot_all(false) {
+                    return (img.width() as u32, img.height() as u32);
+                }
+            }
+        }
+    }
+    (1920, 1080)
 }

@@ -12,8 +12,10 @@ pub struct Recorder {
     output_path: PathBuf,
     display_server: crate::detect::DisplayServer,
     control_pid: Option<u32>,
+    border_pid: Option<u32>,
     paused: bool,
     finished: Arc<AtomicBool>,
+    region: Option<(i32, i32, u32, u32)>,
 }
 
 impl Recorder {
@@ -33,8 +35,10 @@ impl Recorder {
             output_path,
             display_server: display_server.clone(),
             control_pid: None,
+            border_pid: None,
             paused: false,
             finished: Arc::new(AtomicBool::new(false)),
+            region: None,
         }
     }
 
@@ -50,9 +54,21 @@ impl Recorder {
         self.control_pid = Some(pid);
     }
 
+    pub fn set_border_pid(&mut self, pid: u32) {
+        self.border_pid = Some(pid);
+    }
+
     #[allow(dead_code)]
     pub fn is_paused(&self) -> bool {
         self.paused
+    }
+
+    pub fn set_region(&mut self, region: Option<(i32, i32, u32, u32)>) {
+        self.region = region;
+    }
+
+    pub fn region(&self) -> Option<(i32, i32, u32, u32)> {
+        self.region
     }
 
     pub async fn start(&mut self) -> anyhow::Result<()> {
@@ -71,6 +87,7 @@ impl Recorder {
         let stop_flag = self.stop_flag.clone();
         let pause_flag = self.pause_flag.clone();
         let finished = self.finished.clone();
+        let region = self.region;
 
         let handle = std::thread::Builder::new()
             .name("screen-recorder".into())
@@ -80,6 +97,7 @@ impl Recorder {
                     &display_server,
                     &stop_flag,
                     &pause_flag,
+                    &region,
                 ) {
                     log::error!("recording loop error: {e}");
                 }
@@ -95,6 +113,10 @@ impl Recorder {
     pub async fn stop(&mut self) -> anyhow::Result<PathBuf> {
         if let Some(pid) = self.control_pid.take() {
             log::info!("stopping control bar (pid {})", pid);
+            let _ = unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+        }
+        if let Some(pid) = self.border_pid.take() {
+            log::info!("stopping border overlay (pid {})", pid);
             let _ = unsafe { libc::kill(pid as i32, libc::SIGTERM) };
         }
 
@@ -135,9 +157,17 @@ fn run_recording_loop(
     display_server: &crate::detect::DisplayServer,
     stop_flag: &AtomicBool,
     pause_flag: &AtomicBool,
+    region: &Option<(i32, i32, u32, u32)>,
 ) -> anyhow::Result<()> {
-    let (width, height) = detect_screen_size(display_server)?;
-    log::info!("recording at {}x{}", width, height);
+    let (rec_x, rec_y, rec_w, rec_h) = match region {
+        Some((x, y, w, h)) => (*x, *y, *w, *h),
+        None => {
+            let (w, h) = detect_screen_size(display_server)?;
+            (0, 0, w, h)
+        }
+    };
+
+    log::info!("recording at {}x{}+{},{}", rec_w, rec_h, rec_x, rec_y);
 
     let fps = 30;
     let mut output = ffmpeg::format::output(output_path)
@@ -154,8 +184,8 @@ fn run_recording_loop(
         .video()
         .map_err(|e| anyhow::anyhow!("create encoder failed: {e}"))?;
 
-    encoder.set_width(width);
-    encoder.set_height(height);
+    encoder.set_width(rec_w);
+    encoder.set_height(rec_h);
     encoder.set_format(ffmpeg::util::format::pixel::Pixel::YUV420P);
     encoder.set_time_base((1, fps as i32));
     encoder.set_frame_rate(Some((fps as i32, 1)));
@@ -194,19 +224,19 @@ fn run_recording_loop(
 
     let mut scaler = ffmpeg::software::scaling::context::Context::get(
         ffmpeg::util::format::pixel::Pixel::RGB24,
-        width,
-        height,
+        rec_w,
+        rec_h,
         ffmpeg::util::format::pixel::Pixel::YUV420P,
-        width,
-        height,
+        rec_w,
+        rec_h,
         ffmpeg::software::scaling::flag::Flags::BILINEAR,
     )
     .map_err(|e| anyhow::anyhow!("create scaler failed: {e}"))?;
 
     let mut yuv_frame = ffmpeg::util::frame::video::Video::new(
         ffmpeg::util::format::pixel::Pixel::YUV420P,
-        width,
-        height,
+        rec_w,
+        rec_h,
     );
 
     let mut frame_index: i64 = 0;
@@ -222,18 +252,18 @@ fn run_recording_loop(
 
         let capture_start = std::time::Instant::now();
 
-        let rgb_data = capture_screen_frame(display_server, width, height)?;
+        let rgb_data = capture_screen_frame(display_server, rec_x, rec_y, rec_w, rec_h)?;
 
         let mut rgb_frame = ffmpeg::util::frame::video::Video::new(
             ffmpeg::util::format::pixel::Pixel::RGB24,
-            width,
-            height,
+            rec_w,
+            rec_h,
         );
         {
             let stride = rgb_frame.stride(0);
-            let row_len = width as usize * 3;
+            let row_len = rec_w as usize * 3;
             let plane = rgb_frame.data_mut(0);
-            for row in 0..height as usize {
+            for row in 0..rec_h as usize {
                 let src_start = row * row_len;
                 let src_end = src_start + row_len;
                 let dst_start = row * stride;
@@ -313,18 +343,20 @@ fn detect_screen_size(display_server: &crate::detect::DisplayServer) -> anyhow::
 
 fn capture_screen_frame(
     display_server: &crate::detect::DisplayServer,
-    width: u32,
-    height: u32,
+    x: i32,
+    y: i32,
+    w: u32,
+    h: u32,
 ) -> anyhow::Result<Vec<u8>> {
     match display_server {
-        crate::detect::DisplayServer::X11 => capture_x11_frame(width, height),
+        crate::detect::DisplayServer::X11 => capture_x11_region(x, y, w, h),
         crate::detect::DisplayServer::Wayland | crate::detect::DisplayServer::Unknown => {
-            capture_wayland_frame(width, height)
+            capture_wayland_region(x, y, w, h)
         }
     }
 }
 
-fn capture_x11_frame(width: u32, height: u32) -> anyhow::Result<Vec<u8>> {
+fn capture_x11_region(x: i32, y: i32, w: u32, h: u32) -> anyhow::Result<Vec<u8>> {
     use x11rb::connection::Connection;
     use x11rb::protocol::xproto::*;
     use x11rb::rust_connection::RustConnection;
@@ -336,15 +368,15 @@ fn capture_x11_frame(width: u32, height: u32) -> anyhow::Result<Vec<u8>> {
         &conn,
         ImageFormat::Z_PIXMAP,
         screen.root,
-        0,
-        0,
-        width as u16,
-        height as u16,
+        x as i16,
+        y as i16,
+        w as u16,
+        h as u16,
         u32::MAX,
     )?
     .reply()?;
 
-    let mut rgb = Vec::with_capacity((width * height * 3) as usize);
+    let mut rgb = Vec::with_capacity((w * h * 3) as usize);
     for chunk in reply.data.chunks_exact(4) {
         rgb.push(chunk[2]);
         rgb.push(chunk[1]);
@@ -354,17 +386,37 @@ fn capture_x11_frame(width: u32, height: u32) -> anyhow::Result<Vec<u8>> {
     Ok(rgb)
 }
 
-fn capture_wayland_frame(width: u32, height: u32) -> anyhow::Result<Vec<u8>> {
+fn capture_wayland_region(x: i32, y: i32, w: u32, h: u32) -> anyhow::Result<Vec<u8>> {
     let conn = libwayshot::WayshotConnection::new()?;
     let img = conn.screenshot_all(false)?;
     let rgba_buf = img.as_rgba8().ok_or_else(|| anyhow::anyhow!("failed to get rgba8 buffer"))?;
     let rgba = rgba_buf.as_raw();
 
-    let mut rgb = Vec::with_capacity((width * height * 3) as usize);
-    for chunk in rgba.chunks_exact(4) {
-        rgb.push(chunk[0]);
-        rgb.push(chunk[1]);
-        rgb.push(chunk[2]);
+    let full_w = img.width() as usize;
+    let crop_x = x.max(0) as usize;
+    let crop_y = y.max(0) as usize;
+    let crop_w = w as usize;
+    let crop_h = h as usize;
+
+    let mut rgb = Vec::with_capacity(crop_w * crop_h * 3);
+    for row in crop_y..crop_y + crop_h {
+        if row >= img.height() as usize {
+            rgb.extend(std::iter::repeat(0).take(crop_w * 3));
+            continue;
+        }
+        let row_start = row * full_w * 4 + crop_x * 4;
+        for col in 0..crop_w {
+            let px = row_start + col * 4;
+            if px + 3 < rgba.len() {
+                rgb.push(rgba[px]);
+                rgb.push(rgba[px + 1]);
+                rgb.push(rgba[px + 2]);
+            } else {
+                rgb.push(0);
+                rgb.push(0);
+                rgb.push(0);
+            }
+        }
     }
 
     Ok(rgb)

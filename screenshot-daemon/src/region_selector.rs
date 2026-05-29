@@ -60,6 +60,7 @@ struct App {
     #[allow(dead_code)]
     output_path: Option<String>,
     shared: Arc<Mutex<SharedState>>,
+    record_mode: bool,
 }
 
 struct ToolIcons {
@@ -262,6 +263,7 @@ impl App {
         output_path: Option<String>,
         shared: Arc<Mutex<SharedState>>,
         fullscreen: Option<image::RgbaImage>,
+        record_mode: bool,
     ) -> Self {
         let icons = cc.map(|cc| ToolIcons {
             mv: make_icon(cc, "move", draw_icon_move),
@@ -293,6 +295,7 @@ impl App {
             move_dragging: false,
             output_path,
             shared,
+            record_mode,
         }
     }
 
@@ -427,7 +430,9 @@ impl eframe::App for App {
         }
 
         if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
-            if self.tool == Tool::Text && self.text_pos.is_some() && !self.text_input.is_empty() {
+            if self.record_mode {
+                self.finish(ctx);
+            } else if self.tool == Tool::Text && self.text_pos.is_some() && !self.text_input.is_empty() {
                 let p = self.text_pos.unwrap();
                 self.annotations.push(Annotation::Text {
                     x: p.x,
@@ -495,6 +500,10 @@ impl eframe::App for App {
                             let r = egui::Rect::from_two_pos(s, e);
                             if r.width() > 10.0 && r.height() > 10.0 {
                                 self.selection = Some(r);
+                                if self.record_mode {
+                                    self.finish(ctx);
+                                    return;
+                                }
                                 self.phase = Phase::Annotating;
                                 self.tool = Tool::Rect;
                                 // Position toolbar smartly near selection
@@ -551,6 +560,16 @@ impl eframe::App for App {
                     } else {
                         // No selection yet — dim entire screen
                         painter.rect_filled(screen, 0.0, egui::Color32::from_black_alpha(100));
+                        if self.record_mode {
+                            let hint = "Select recording area (Enter = fullscreen)";
+                            painter.text(
+                                screen.center(),
+                                egui::Align2::CENTER_CENTER,
+                                hint,
+                                egui::FontId::proportional(18.0),
+                                egui::Color32::WHITE,
+                            );
+                        }
                     }
                 });
             ctx.request_repaint();
@@ -1177,6 +1196,8 @@ fn main() -> eframe::Result<()> {
         None
     };
 
+    let record_mode = args.contains(&"--record".to_string());
+
     // Capture fullscreen BEFORE creating the overlay window
     // If --background is provided, use that; otherwise capture ourselves
     let fullscreen = if let Some(ref p) = bg_path {
@@ -1214,6 +1235,7 @@ fn main() -> eframe::Result<()> {
                 output_path_clone,
                 shared_clone,
                 fullscreen,
+                record_mode,
             )))
         }),
     )?;
@@ -1225,6 +1247,20 @@ fn main() -> eframe::Result<()> {
     }
 
     if s.finished {
+        if record_mode {
+            if let Some(sel) = s.selection {
+                let scale = s.pixels_per_point;
+                let x = (sel.min.x * scale).max(0.0) as i32;
+                let y = (sel.min.y * scale).max(0.0) as i32;
+                let w = (sel.width() * scale).round() as u32;
+                let h = (sel.height() * scale).round() as u32;
+                println!("region:{},{},{},{}", x, y, w, h);
+            } else {
+                println!("fullscreen");
+            }
+            return Ok(());
+        }
+
         if let Some(path) = &output_path {
             if let Some(mut img) = s.fullscreen.clone() {
                 if let Some(sel) = s.selection {

@@ -112,3 +112,70 @@ pub async fn capture_wayland(path: &Path) -> anyhow::Result<()> {
     img.save(path)?;
     Ok(())
 }
+
+pub async fn select_record_region(
+    display_server: &crate::detect::DisplayServer,
+) -> anyhow::Result<Option<Option<(i32, i32, u32, u32)>>> {
+    let self_exe = std::env::current_exe()?;
+    let dir = self_exe
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let selector = dir.join("region-selector");
+
+    let bg_path = std::env::temp_dir().join("screenshot-daemon-bg.png");
+    let _ = std::fs::remove_file(&bg_path);
+    let has_bg = match display_server {
+        crate::detect::DisplayServer::Wayland | crate::detect::DisplayServer::Unknown => {
+            match capture_wayland_image() {
+                Ok(img) => {
+                    img.save(&bg_path)?;
+                    true
+                }
+                Err(e) => {
+                    log::warn!("Wayland native capture failed: {e}");
+                    false
+                }
+            }
+        }
+        crate::detect::DisplayServer::X11 => false,
+    };
+
+    let mut cmd = tokio::process::Command::new(&selector);
+    cmd.arg("--record");
+    if has_bg {
+        cmd.arg("--background").arg(&bg_path);
+    }
+
+    let output = cmd.output().await?;
+    let _ = std::fs::remove_file(&bg_path);
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    if stdout == "cancelled" {
+        return Ok(None);
+    }
+
+    if stdout == "fullscreen" {
+        return Ok(Some(None));
+    }
+
+    if stdout.starts_with("region:") {
+        let parts: Vec<&str> = stdout[7..].split(',').collect();
+        if parts.len() >= 4 {
+            let x: i32 = parts[0].parse()?;
+            let y: i32 = parts[1].parse()?;
+            let w: u32 = parts[2].parse()?;
+            let h: u32 = parts[3].parse()?;
+            return Ok(Some(Some((x, y, w, h))));
+        }
+    }
+
+    if !output.status.success() {
+        anyhow::bail!(
+            "region-selector failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    anyhow::bail!("unexpected region-selector output: {}", stdout)
+}

@@ -23,6 +23,10 @@ name = "record-control"
 path = "src/record_control.rs"
 
 [[bin]]
+name = "record-border"
+path = "src/record_border.rs"
+
+[[bin]]
 name = "deps-dialog"
 path = "src/deps_dialog.rs"
 
