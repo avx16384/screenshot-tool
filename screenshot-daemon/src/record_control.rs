@@ -11,11 +11,12 @@ struct ControlState {
 
 struct ControlBar {
     state: Arc<Mutex<ControlState>>,
+    drag_offset: Option<egui::Pos2>,
 }
 
 impl ControlBar {
     fn new(state: Arc<Mutex<ControlState>>) -> Self {
-        Self { state }
+        Self { state, drag_offset: None }
     }
 }
 
@@ -51,95 +52,112 @@ impl eframe::App for ControlBar {
 
         let is_paused = state.paused;
 
-        egui::CentralPanel::default()
-            .frame(egui::Frame::none().fill(egui::Color32::TRANSPARENT))
+        let response = egui::Area::new(egui::Id::new("control_bar"))
+            .movable(false)
+            .interactable(true)
+            .order(egui::Order::Foreground)
+            .anchor(egui::Align2::LEFT_TOP, egui::vec2(0.0, 0.0))
             .show(ctx, |ui| {
-                let panel_rect = ui.max_rect();
-                let drag_response = ui.interact(
-                    panel_rect,
-                    egui::Id::new("control_bar_drag"),
-                    egui::Sense::drag(),
-                );
-                if drag_response.drag_started() {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
-                }
+                ui.horizontal_centered(|ui| {
+                    let frame = egui::Frame::none()
+                        .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 40, 230))
+                        .rounding(egui::Rounding::same(8.0))
+                        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 80, 100)))
+                        .inner_margin(egui::Margin::symmetric(8.0, 4.0));
 
-                let frame = egui::Frame::none()
-                    .fill(egui::Color32::from_rgba_unmultiplied(30, 30, 40, 230))
-                    .rounding(egui::Rounding::same(8.0))
-                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 80, 100)))
-                    .inner_margin(egui::Margin::symmetric(8.0, 4.0));
-
-                frame.show(ui, |ui| {
-                    ui.horizontal_centered(|ui| {
-                        let dot_color = if is_paused {
-                            egui::Color32::from_rgb(255, 200, 50)
-                        } else {
-                            egui::Color32::from_rgb(255, 60, 60)
-                        };
-                        let (rect, _) =
-                            ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
-                        let painter = ui.painter();
-                        let center = rect.center();
-                        painter.circle_filled(center, 5.0, dot_color);
-
-                        ui.add_space(4.0);
-
-                        ui.add(egui::Label::new(
-                            egui::RichText::new(&time_str)
-                                .font(egui::FontId::monospace(16.0))
-                                .color(egui::Color32::WHITE),
-                        ).selectable(false));
-
-                        ui.add_space(8.0);
-
-                        let pause_label = if is_paused { "▶" } else { "⏸" };
-                        let pause_tooltip = if is_paused { "Resume" } else { "Pause" };
-                        if ui
-                            .add(
-                                egui::Button::new(
-                                    egui::RichText::new(pause_label)
-                                        .font(egui::FontId::proportional(16.0))
-                                        .color(egui::Color32::WHITE),
-                                )
-                                .frame(false)
-                                .min_size(egui::vec2(28.0, 24.0)),
-                            )
-                            .on_hover_text(pause_tooltip)
-                            .clicked()
-                        {
-                            if state.paused {
-                                state.start_time = Some(Instant::now());
-                                state.paused = false;
-                                println!("resumed");
+                    frame.show(ui, |ui| {
+                        ui.horizontal_centered(|ui| {
+                            let dot_color = if is_paused {
+                                egui::Color32::from_rgb(255, 200, 50)
                             } else {
-                                let elapsed = state.start_time.unwrap().elapsed();
-                                state.paused_elapsed += elapsed;
-                                state.paused = true;
-                                println!("paused");
-                            }
-                        }
+                                egui::Color32::from_rgb(255, 60, 60)
+                            };
+                            let (rect, _) =
+                                ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
+                            let painter = ui.painter();
+                            let center = rect.center();
+                            painter.circle_filled(center, 5.0, dot_color);
 
-                        if ui
-                            .add(
-                                egui::Button::new(
-                                    egui::RichText::new("⏹")
-                                        .font(egui::FontId::proportional(16.0))
-                                        .color(egui::Color32::from_rgb(255, 100, 100)),
+                            ui.add_space(4.0);
+
+                            ui.label(
+                                egui::RichText::new(&time_str)
+                                    .font(egui::FontId::monospace(16.0))
+                                    .color(egui::Color32::WHITE),
+                            );
+
+                            ui.add_space(8.0);
+
+                            let pause_label = if is_paused { "▶" } else { "⏸" };
+                            let pause_tooltip = if is_paused { "Resume" } else { "Pause" };
+                            if ui
+                                .add(
+                                    egui::Button::new(
+                                        egui::RichText::new(pause_label)
+                                            .font(egui::FontId::proportional(16.0))
+                                            .color(egui::Color32::WHITE),
+                                    )
+                                    .frame(false)
+                                    .min_size(egui::vec2(28.0, 24.0)),
                                 )
-                                .frame(false)
-                                .min_size(egui::vec2(28.0, 24.0)),
-                            )
-                            .on_hover_text("Stop recording")
-                            .clicked()
-                        {
-                            state.recording = false;
-                            state.stopped = true;
-                            println!("stopped");
-                        }
+                                .on_hover_text(pause_tooltip)
+                                .clicked()
+                            {
+                                if state.paused {
+                                    state.start_time = Some(Instant::now());
+                                    state.paused = false;
+                                    println!("resumed");
+                                } else {
+                                    let elapsed = state.start_time.unwrap().elapsed();
+                                    state.paused_elapsed += elapsed;
+                                    state.paused = true;
+                                    println!("paused");
+                                }
+                            }
+
+                            if ui
+                                .add(
+                                    egui::Button::new(
+                                        egui::RichText::new("⏹")
+                                            .font(egui::FontId::proportional(16.0))
+                                            .color(egui::Color32::from_rgb(255, 100, 100)),
+                                    )
+                                    .frame(false)
+                                    .min_size(egui::vec2(28.0, 24.0)),
+                                )
+                                .on_hover_text("Stop recording")
+                                .clicked()
+                            {
+                                state.recording = false;
+                                state.stopped = true;
+                                println!("stopped");
+                            }
+                        });
                     });
                 });
-            });
+            })
+            .response;
+
+        if response.dragged() {
+            if self.drag_offset.is_none() {
+                if let Some(pos) = ctx.input(|i| i.pointer.latest_pos()) {
+                    let screen_rect = ctx.input(|i| i.screen_rect);
+                    self.drag_offset = Some(egui::pos2(
+                        pos.x - screen_rect.left(),
+                        pos.y - screen_rect.top(),
+                    ));
+                }
+            }
+            if let Some(offset) = self.drag_offset {
+                if let Some(pos) = ctx.input(|i| i.pointer.latest_pos()) {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(
+                        egui::pos2(pos.x - offset.x, pos.y - offset.y),
+                    ));
+                }
+            }
+        } else {
+            self.drag_offset = None;
+        }
 
         drop(state);
         ctx.request_repaint();
@@ -159,8 +177,7 @@ fn main() -> eframe::Result<()> {
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size(egui::vec2(100.0, 36.0))
-            .with_max_inner_size(egui::vec2(400.0, 50.0))
+            .with_inner_size(egui::vec2(200.0, 40.0))
             .with_decorations(false)
             .with_always_on_top()
             .with_transparent(true)
