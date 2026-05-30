@@ -1,82 +1,106 @@
 # screenshot-tool
 
-Lightweight Linux screenshot & screencast daemon with global hotkeys, region selection, and a draggable floating control bar. Zero external runtime dependencies — all capture, encoding, clipboard, and notification logic uses direct API calls.
+Lightweight Linux screenshot and screencast daemon with global hotkeys, region selection, and a draggable floating control bar.
+
+The public release ships project executables plus project C API dynamic libraries. It does not bundle FFmpeg, libvpx, opus, GBM, libc, or other system libraries.
 
 ## Features
 
-- **Fullscreen screenshot** — `Ctrl+Shift+P`
-- **Region screenshot** — `Ctrl+Alt+A` (drag to select, with annotation)
-- **Screen recording** — `Ctrl+Alt+R` (VP9/WebM, royalty-free)
-- **Draggable control bar** — pause, resume, stop recording with a floating bar
-- **Auto clipboard** — screenshots copied to clipboard automatically
-- **Desktop notifications** — D-Bus notifications with "Open" action
-- **X11 & Wayland** — auto-detects display server, works on both
-- **Dependency check** — warns at startup if required libraries are missing
+- Fullscreen screenshot: `Ctrl+Shift+P`
+- Region screenshot: `Ctrl+Alt+A`
+- Screen recording: `Ctrl+Alt+R`
+- VP9 video and Opus audio in WebM
+- Runtime-loaded C API overlay and selector libraries
+- Fullscreen red recording border overlay
+- Draggable recording control bar, controlled by TOML config
+- X11 and Wayland support
 
-## Hotkeys
+## Release Layout
 
-| Action | Hotkey |
+| Path | Purpose |
 | --- | --- |
-| Fullscreen screenshot | `Ctrl+Shift+P` |
-| Region screenshot | `Ctrl+Alt+A` |
-| Start / Stop recording | `Ctrl+Alt+R` |
+| `bin/` | Wrapper entry points that set dynamic library paths |
+| `libexec/` | Project executable binaries |
+| `lib/` | Project dynamic libraries: `libscreenshot_daemon.so`, `libregion_overlay_capi.so` |
+| `install` | User install script |
+| `uninstall` | User uninstall script |
 
-## Video Recording
+Private Rust crate source is not included. The selector and overlay implementation is shipped as `.so` files and loaded at runtime.
 
-Recordings use **VP9** (libvpx) in a **WebM** container — no proprietary codecs (no H.264, no AAC). Files are saved to `~/Videos/screencasts/`.
+## Install
 
-Encoder settings: CRF 30, realtime deadline, cpu-used 8 (fast encoding).
+```bash
+tar -xzf screenshot-tool-v0.1.2-linux-x86_64.tar.gz
+cd screenshot-tool-v0.1.2-linux-x86_64
+./install
+```
 
-## Binaries
+Uninstall:
 
-| Binary | Purpose |
+```bash
+./uninstall
+```
+
+## Config
+
+Config file:
+
+```text
+~/.config/screenshot-daemon/config.toml
+```
+
+Example:
+
+```toml
+save_dir = "/home/user/Pictures/screenshots"
+controlbar_draggable = true
+```
+
+## System Libraries
+
+Install these with the system package manager. They are intentionally not bundled in the release archive.
+
+Debian/Ubuntu 24.04:
+
+```bash
+sudo apt install libgbm1 libavcodec60 libavformat60 libavutil58 libswscale7 libvpx7 libopus0
+```
+
+Arch Linux:
+
+```bash
+sudo pacman -S ffmpeg mesa libvpx opus
+```
+
+Fedora:
+
+```bash
+sudo dnf install ffmpeg-libs mesa-libgbm libvpx opus
+```
+
+Required runtime libraries:
+
+| Library | Purpose |
 | --- | --- |
-| `screenshot-daemon` | Background daemon (main entry point) |
-| `region-selector` | Standalone region selection & annotation tool |
-| `record-control` | Floating control bar for recording |
-| `deps-dialog` | Dependency warning dialog |
+| libavcodec | VP9 and Opus encoding through FFmpeg |
+| libavformat | WebM muxing |
+| libavutil | FFmpeg utility runtime |
+| libswscale | pixel format conversion |
+| libvpx | VP9 codec |
+| libopus | Opus codec |
+| libgbm | graphics buffer management |
 
-## Build
+## Build Release
 
-```bash
-cargo build --workspace --release
-```
+The opensource repository keeps private implementation dependencies as local shadow links during development. Do not copy those crate sources into this repository.
 
-Binaries are output to `target/release/`.
-
-## System Requirements
-
-- Linux desktop (X11 or Wayland)
-- Read access to `/dev/input/` for global hotkey detection
-
-### System Library Dependencies
-
-These are system packages (install via your distro's package manager, e.g. `pacman -S libavcodec libavformat libswscale libvpx`).
-
-| Library | Package (Arch) | Purpose |
-| --- | --- | --- |
-| libavcodec | `ffmpeg` | Video encoding |
-| libavformat | `ffmpeg` | Container muxing |
-| libswscale | `ffmpeg` | Pixel format conversion |
-| libvpx | `libvpx` | VP9 encoder |
-
-All other dependencies are Rust crates compiled statically into the binary — no additional system packages needed.
-
-## Install as systemd Service
+Build the binary release package:
 
 ```bash
-mkdir -p ~/.config/systemd/user
-cp screenshot-daemon.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now screenshot-daemon
+./scripts/release_folder.sh 0.1.2
 ```
 
-## Release
-
-```bash
-./scripts/release_folder.sh
-./scripts/pack_to_7z.sh release/screenshot-tool-v0.1.0-linux-x86_64
-```
+The generated archive contains only project binaries, project `.so` files, docs, service files, and install scripts.
 
 ## License
 
