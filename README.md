@@ -84,6 +84,12 @@ save_dir = "/home/user/Pictures/screenshots"
 controlbar_draggable = true
 ```
 
+## Overlay Library
+
+`lib/libregion_overlay_capi.so` provides the recording border and control bar. It is replaceable: any implementation with the same C API can be used.
+
+The current `.so` is shipped as a binary because it uses private crates that are not part of this open-source repository. Compatible open-source overlay implementations are welcome.
+
 ## Build
 
 ```bash
