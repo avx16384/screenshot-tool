@@ -4,7 +4,7 @@ Linux screenshot and screen recording tool for X11 and Wayland.
 
 ## Summary
 
-- Fullscreen screenshot: `Ctrl+Shift+P`
+- Fullscreen screenshot: `PrintScreen`
 - Region screenshot: `Ctrl+Alt+A`
 - Start/stop screen recording: `Ctrl+Alt+R`
 - Recording output: VP9 + Opus in WebM
@@ -65,7 +65,7 @@ Hotkeys:
 
 | Action | Hotkey |
 | --- | --- |
-| Fullscreen screenshot | `Ctrl+Shift+P` |
+| Fullscreen screenshot | `PrintScreen` |
 | Region screenshot | `Ctrl+Alt+A` |
 | Start/stop recording | `Ctrl+Alt+R` |
 

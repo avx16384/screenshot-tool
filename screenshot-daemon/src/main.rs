@@ -38,7 +38,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let hotkeys = vec![
-        hotkey::Hotkey::parse("fullscreen", "Ctrl+Shift+P")?,
+        hotkey::Hotkey::parse("fullscreen", "Print")?,
         hotkey::Hotkey::parse("region", "Ctrl+Alt+A")?,
         hotkey::Hotkey::parse("record", "Ctrl+Alt+R")?,
     ];
