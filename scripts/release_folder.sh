@@ -34,7 +34,7 @@ find_artifact() {
 }
 
 install -m 0755 "$(find_artifact libregion_selector.so)" "$release_dir/libexec/libregion_selector.so"
-install -m 0755 "$(find_artifact libregion_overlay_capi.so)" "$release_dir/lib/libregion_overlay_capi.so"
+install -m 0755 "$repo_root/lib/libregion_overlay_capi.so" "$release_dir/lib/libregion_overlay_capi.so"
 install -m 0644 "$repo_root/README.md" "$release_dir/docs/README.md"
 install -m 0644 "$repo_root/LICENSE" "$release_dir/docs/LICENSE"
 
