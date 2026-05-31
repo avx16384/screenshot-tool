@@ -2,7 +2,6 @@
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-source_dir="$repo_root/../../rust/apps/screenshot-daemon"
 version=${1:-0.1.2}
 cargo_target_dir=${CARGO_TARGET_DIR:-/tmp/screenshot-tool-target-release}
 target_dir="$cargo_target_dir/release"
@@ -14,11 +13,11 @@ archive_path="$release_root/$release_name.tar.gz"
 mkdir -p "$release_root"
 rm -rf "$release_dir" "$archive_path"
 
-CARGO_TARGET_DIR="$cargo_target_dir" cargo build --manifest-path "$source_dir/Cargo.toml" --release
+CARGO_TARGET_DIR="$cargo_target_dir" cargo build --manifest-path "$repo_root/Cargo.toml" --release
 
 mkdir -p "$release_dir/bin" "$release_dir/libexec" "$release_dir/lib" "$release_dir/docs" "$release_dir/systemd"
 
-for bin in screenshot-daemon region-selector record-region-overlay deps-dialog; do
+for bin in screenshot-daemon region-selector deps-dialog; do
   install -m 0755 "$target_dir/$bin" "$release_dir/libexec/$bin"
 done
 
@@ -34,18 +33,18 @@ find_artifact() {
   fi
 }
 
-install -m 0755 "$(find_artifact libregion_selector.so)" "$release_dir/lib/libregion_selector.so"
+install -m 0755 "$(find_artifact libregion_selector.so)" "$release_dir/libexec/libregion_selector.so"
 install -m 0755 "$(find_artifact libregion_overlay_capi.so)" "$release_dir/lib/libregion_overlay_capi.so"
 install -m 0644 "$repo_root/README.md" "$release_dir/docs/README.md"
 install -m 0644 "$repo_root/LICENSE" "$release_dir/docs/LICENSE"
 
-for bin in screenshot-daemon region-selector record-region-overlay deps-dialog; do
+for bin in screenshot-daemon region-selector deps-dialog; do
   cat > "$release_dir/bin/$bin" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")/.." && pwd)"
 export LD_LIBRARY_PATH="\$ROOT_DIR/lib\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
-export SCREENSHOT_DAEMON_SELECTOR_CAPI="\$ROOT_DIR/lib/libregion_selector.so"
+export SCREENSHOT_DAEMON_SELECTOR_CAPI="\$ROOT_DIR/libexec/libregion_selector.so"
 export SCREENSHOT_DAEMON_OVERLAY_CAPI="\$ROOT_DIR/lib/libregion_overlay_capi.so"
 exec "\$ROOT_DIR/libexec/$bin" "\$@"
 EOF
@@ -81,7 +80,7 @@ UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 mkdir -p "$PREFIX" "$BIN_DIR" "$UNIT_DIR"
 cp -a "$ROOT_DIR/." "$PREFIX/"
 
-for bin in screenshot-daemon region-selector record-region-overlay deps-dialog; do
+for bin in screenshot-daemon region-selector deps-dialog; do
   ln -sfn "$PREFIX/bin/$bin" "$BIN_DIR/$bin"
 done
 
@@ -107,7 +106,7 @@ systemctl --user disable --now screenshot-daemon.service 2>/dev/null || true
 rm -f "$UNIT_DIR/screenshot-daemon.service"
 systemctl --user daemon-reload 2>/dev/null || true
 
-for bin in screenshot-daemon region-selector record-region-overlay deps-dialog; do
+for bin in screenshot-daemon region-selector deps-dialog; do
   rm -f "$BIN_DIR/$bin"
 done
 

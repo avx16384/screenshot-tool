@@ -23,10 +23,6 @@ name = "region-selector"
 path = "src/region_selector.rs"
 
 [[bin]]
-name = "record-region-overlay"
-path = "src/record_region_overlay.rs"
-
-[[bin]]
 name = "deps-dialog"
 path = "src/deps_dialog.rs"
 
@@ -48,7 +44,6 @@ arboard = "3"
 eframe = "0.30"
 egui = "0.30"
 ffmpeg-next = { version = "7.1.0", default-features = false, features = ["codec", "format", "software-scaling"] }
-region-overlay-capi = { path = "../../crates/region-overlay-capi" }
 libloading = "0.8"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
