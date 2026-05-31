@@ -34,7 +34,7 @@ find_artifact() {
   fi
 }
 
-install -m 0755 "$(find_artifact libscreenshot_daemon.so)" "$release_dir/lib/libscreenshot_daemon.so"
+install -m 0755 "$(find_artifact libregion_selector.so)" "$release_dir/lib/libregion_selector.so"
 install -m 0755 "$(find_artifact libregion_overlay_capi.so)" "$release_dir/lib/libregion_overlay_capi.so"
 install -m 0644 "$repo_root/README.md" "$release_dir/docs/README.md"
 install -m 0644 "$repo_root/LICENSE" "$release_dir/docs/LICENSE"
@@ -45,7 +45,7 @@ for bin in screenshot-daemon region-selector record-region-overlay deps-dialog; 
 set -euo pipefail
 ROOT_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")/.." && pwd)"
 export LD_LIBRARY_PATH="\$ROOT_DIR/lib\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
-export SCREENSHOT_DAEMON_SELECTOR_CAPI="\$ROOT_DIR/lib/libscreenshot_daemon.so"
+export SCREENSHOT_DAEMON_SELECTOR_CAPI="\$ROOT_DIR/lib/libregion_selector.so"
 export SCREENSHOT_DAEMON_OVERLAY_CAPI="\$ROOT_DIR/lib/libregion_overlay_capi.so"
 exec "\$ROOT_DIR/libexec/$bin" "\$@"
 EOF

@@ -21,7 +21,7 @@ The public release ships project executables plus project C API dynamic librarie
 | --- | --- |
 | `bin/` | Wrapper entry points that set dynamic library paths |
 | `libexec/` | Project executable binaries |
-| `lib/` | Project dynamic libraries: `libscreenshot_daemon.so`, `libregion_overlay_capi.so` |
+| `lib/` | Project dynamic libraries: `libregion_selector.so`, `libregion_overlay_capi.so` |
 | `install` | User install script |
 | `uninstall` | User uninstall script |
 
