@@ -9,6 +9,7 @@ mod config;
 mod deps;
 mod detect;
 mod hotkey;
+mod naming;
 mod notify;
 mod recorder;
 
@@ -205,9 +206,7 @@ async fn capture_screenshot(
     save_dir: &Path,
     display_server: &detect::DisplayServer,
 ) -> anyhow::Result<PathBuf> {
-    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-    let filename = format!("screenshot_{}.png", timestamp);
-    let path = save_dir.join(&filename);
+    let path = crate::naming::unique_path(save_dir, "screenshot", "png");
 
     match display_server {
         detect::DisplayServer::X11 => {
@@ -238,9 +237,7 @@ async fn capture_region_screenshot(
     save_dir: &Path,
     _display_server: &detect::DisplayServer,
 ) -> anyhow::Result<Option<PathBuf>> {
-    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-    let filename = format!("region_{}.png", timestamp);
-    let path = save_dir.join(&filename);
+    let path = crate::naming::unique_path(save_dir, "region", "png");
 
     // region selector C API works on both X11 and Wayland
     match capture::capture_region(&path, _display_server).await? {

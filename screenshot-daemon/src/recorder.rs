@@ -151,8 +151,7 @@ fn new_output_path() -> PathBuf {
     let save_dir = dirs::video_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))
         .join("screencasts");
-    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-    save_dir.join(format!("recording_{}.webm", timestamp))
+    crate::naming::unique_path(&save_dir, "recording", "webm")
 }
 
 fn run_recording_loop(
