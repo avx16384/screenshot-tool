@@ -101,7 +101,7 @@ async fn main() -> anyhow::Result<()> {
     // Sway's exclusive EVIOCGRAB on keyboards. The connection must be held
     // for the lifetime of the main loop — dropping it would unregister the
     // object and release the name.
-    let _dbus_connection = match dbus_service::register(tx.clone()).await {
+    let _dbus_connection = match dbus_service::register(tx.clone(), shutdown.clone()).await {
         Ok(conn) => {
             log::info!("D-Bus service registered: org.screenshot_daemon.Service1");
             Some(conn)

@@ -29,6 +29,15 @@ impl ScreenshotTray {
 }
 
 impl ksni::Tray for ScreenshotTray {
+    /// This item is menu-only: tell the host to show the DBusMenu on click
+    /// rather than calling `Activate`/`ContextMenu`. swaybar calls
+    /// `ContextMenu()` on right-click, which ksni refuses ("Not supported,
+    /// please use `menu`"), and `Activate()` on left-click, which we don't
+    /// implement — so without this flag neither click shows a menu. With
+    /// `ItemIsMenu=true` the host renders the (already correctly served)
+    /// DBusMenu at `/MenuBar` on activation instead.
+    const MENU_ON_ACTIVATE: bool = true;
+
     fn id(&self) -> String {
         "screenshot-daemon".into()
     }

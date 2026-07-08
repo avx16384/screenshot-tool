@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-version=${1:-0.1.2}
+version=${1:-0.1.7}
 release_root="$repo_root/release"
 release_name="screenshot-tool-v${version}-linux-x86_64"
 release_dir="$release_root/$release_name"

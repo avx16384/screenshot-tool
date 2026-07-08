@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-version=${1:-0.1.4}
+version=${1:-0.1.7}
 cargo_target_dir=${CARGO_TARGET_DIR:-/tmp/screenshot-tool-target-release}
 target_dir="$cargo_target_dir/release"
 release_root="$repo_root/release"
@@ -21,19 +21,6 @@ for bin in screenshot-daemon region-selector deps-dialog; do
   install -m 0755 "$target_dir/$bin" "$release_dir/libexec/$bin"
 done
 
-find_artifact() {
-  local name=$1
-  if [[ -f "$target_dir/$name" ]]; then
-    printf '%s\n' "$target_dir/$name"
-  elif [[ -f "$target_dir/deps/$name" ]]; then
-    printf '%s\n' "$target_dir/deps/$name"
-  else
-    echo "missing build artifact: $name" >&2
-    return 1
-  fi
-}
-
-install -m 0755 "$(find_artifact libregion_selector.so)" "$release_dir/libexec/libregion_selector.so"
 install -m 0755 "$repo_root/lib/libregion_overlay_capi.so" "$release_dir/lib/libregion_overlay_capi.so"
 install -m 0644 "$repo_root/README.md" "$release_dir/docs/README.md"
 install -m 0644 "$repo_root/LICENSE" "$release_dir/docs/LICENSE"
@@ -52,7 +39,7 @@ set -euo pipefail
 SCRIPT_PATH="\$(readlink -f "\${BASH_SOURCE[0]}")"
 ROOT_DIR="\$(cd "\$(dirname "\$SCRIPT_PATH")/.." && pwd)"
 export LD_LIBRARY_PATH="\$ROOT_DIR/lib\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
-export SCREENSHOT_DAEMON_SELECTOR_CAPI="\$ROOT_DIR/libexec/libregion_selector.so"
+export SCREENSHOT_DAEMON_SELECTOR_BIN="\$ROOT_DIR/libexec/region-selector"
 export SCREENSHOT_DAEMON_OVERLAY_CAPI="\$ROOT_DIR/lib/libregion_overlay_capi.so"
 exec "\$ROOT_DIR/libexec/$bin" "\$@"
 EOF
@@ -106,9 +93,9 @@ echo "binaries linked in $BIN_DIR"
 echo "tray icon installed to $ICON_DIR"
 echo "autostart entry installed to $AUTOSTART_DIR"
 echo ""
-echo "Start manually:   screenshot-daemon"
-echo "Enable boot start: (autostart .desktop already installed)"
-echo "Stop:             click 'Quit' in the system tray menu"
+echo "Start:            ./start.sh   (or: screenshot-daemon &)"
+echo "Stop:             ./close.sh   (or: click 'Quit' in the tray menu)"
+echo "Autostart:        .desktop entry installed (starts on next login)"
 EOF
 chmod 0755 "$release_dir/install"
 
@@ -138,20 +125,85 @@ echo "uninstalled screenshot-tool"
 EOF
 chmod 0755 "$release_dir/uninstall"
 
+cat > "$release_dir/start.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Start the screenshot daemon in the background (detached).
+ROOT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+DAEMON="$ROOT_DIR/libexec/screenshot-daemon"
+
+if [[ ! -x "$DAEMON" ]]; then
+  echo "Error: daemon binary not found: $DAEMON" >&2
+  exit 1
+fi
+
+export LD_LIBRARY_PATH="$ROOT_DIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export SCREENSHOT_DAEMON_SELECTOR_BIN="$ROOT_DIR/libexec/region-selector"
+export SCREENSHOT_DAEMON_OVERLAY_CAPI="$ROOT_DIR/lib/libregion_overlay_capi.so"
+
+# Refuse to start a second instance if the D-Bus name is already owned.
+if gdbus call --session \
+    --dest org.freedesktop.DBus \
+    --object-path /org/freedesktop/DBus \
+    --method org.freedesktop.DBus.NameHasOwner \
+    org.screenshot_daemon.Service1 2>/dev/null | grep -q true; then
+  echo "screenshot-daemon is already running"
+  exit 0
+fi
+
+LOG_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/screenshot-tool"
+mkdir -p "$LOG_DIR"
+nohup "$DAEMON" >>"$LOG_DIR/daemon.log" 2>&1 &
+echo "screenshot-daemon started (pid $!)"
+echo "logs: $LOG_DIR/daemon.log"
+EOF
+chmod 0755 "$release_dir/start.sh"
+
+cat > "$release_dir/close.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Stop the screenshot daemon cleanly via its D-Bus Quit method (no kill/pkill).
+if ! gdbus call --session \
+    --dest org.freedesktop.DBus \
+    --object-path /org/freedesktop/DBus \
+    --method org.freedesktop.DBus.NameHasOwner \
+    org.screenshot_daemon.Service1 2>/dev/null | grep -q true; then
+  echo "screenshot-daemon is not running"
+  exit 0
+fi
+
+gdbus call --session \
+  --dest org.screenshot_daemon.Service1 \
+  --object-path /org/screenshot_daemon/Service \
+  --method org.screenshot_daemon.Service1.Quit
+
+echo "screenshot-daemon stop requested"
+EOF
+chmod 0755 "$release_dir/close.sh"
+
 cat > "$release_dir/RUNBOOK.md" <<EOF
 # screenshot-tool v$version
 
-This is a **normal desktop application** — no systemd required.
-Start it and a system tray icon appears; click "Quit" in the tray menu to stop.
+A **normal desktop application** — no systemd required. Launch it with
+\`./start.sh\`, a camera icon appears in the system tray, click the tray icon
+for the context menu, and stop it with \`./close.sh\`.
 
-## Run without installing
+## Quick start (no install)
 
+\`\`\`bash
+./start.sh      # launch daemon in the background (detached, logs to ~/.local/share/screenshot-tool/daemon.log)
+./close.sh      # stop the daemon cleanly via D-Bus Quit (no kill/pkill)
+\`\`\`
+
+A camera icon appears in the system tray. Click it for the context menu
+(Fullscreen Screenshot / Region Screenshot / Start / Stop Recording / Quit).
+
+To run in the foreground (e.g. for debugging), use the wrapper directly:
 \`\`\`bash
 ./bin/screenshot-daemon
 \`\`\`
-
-A camera icon appears in the system tray. Right-click for the context menu
-(Fullscreen Screenshot / Region Screenshot / Start-Stop Recording / Quit).
 
 ## Install (binaries + tray icon + autostart entry)
 
@@ -161,19 +213,30 @@ A camera icon appears in the system tray. Right-click for the context menu
 
 This installs:
 - Binaries to \`~/.local/opt/screenshot-tool/\`
-- Symlinks in \`~/.local/bin/\`
+- Symlinks in \`~/.local/bin/\` (so \`screenshot-daemon\` is on PATH)
 - Tray SVG icon to \`~/.local/share/icons/hicolor/scalable/apps/\`
 - Autostart \`.desktop\` entry to \`~/.config/autostart/\` (starts on next login)
 
-After installing, start the daemon manually:
+After installing, start the daemon:
 \`\`\`bash
-screenshot-daemon &
+./start.sh             # from this release folder
+# — or —
+screenshot-daemon &    # from anywhere (uses the installed symlink)
 \`\`\`
 
 Or log out and back in — the autostart entry will launch it automatically.
 
+## Stop
+
+\`\`\`bash
+./close.sh       # clean D-Bus Quit
+\`\`\`
+
+Or click "Quit" in the system tray context menu.
+
 ## Uninstall
 
+Stop the daemon first (\`./close.sh\` or tray "Quit"), then:
 \`\`\`bash
 ./uninstall
 \`\`\`
