@@ -1233,6 +1233,19 @@ pub fn run_region_selector(
             .with_decorations(false)
             .with_always_on_top()
             .with_transparent(true),
+        // The daemon loads this library via `dlopen` and calls it on a
+        // `tokio::task::spawn_blocking` worker thread (not the process main
+        // thread). Under Wayland/X11, winit refuses to create an `EventLoop`
+        // off the main thread by default — it panics, and because the panic
+        // unwinds across the `extern "C"` FFI boundary, the whole daemon
+        // aborts. `with_any_thread(true)` lifts that restriction so the
+        // event loop can live on the worker thread that actually calls us.
+        event_loop_builder: Some(Box::new(|builder| {
+            use winit::platform::wayland::EventLoopBuilderExtWayland;
+            use winit::platform::x11::EventLoopBuilderExtX11;
+            EventLoopBuilderExtWayland::with_any_thread(builder, true);
+            EventLoopBuilderExtX11::with_any_thread(builder, true);
+        })),
         ..Default::default()
     };
 

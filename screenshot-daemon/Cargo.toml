@@ -43,8 +43,10 @@ futures-lite = "2"
 arboard = "3"
 eframe = "0.30"
 egui = "0.30"
+winit = "0.30"
 ffmpeg-next = { version = "7.1.0", default-features = false, features = ["codec", "format", "software-scaling"] }
 libloading = "0.8"
+ksni = "0.3"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 

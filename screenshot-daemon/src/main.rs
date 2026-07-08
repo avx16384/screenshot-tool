@@ -2,19 +2,37 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+use ksni::TrayMethods;
+
 mod capi_runtime;
 mod capture;
+mod cli_trigger;
 mod clipboard;
 mod config;
+mod dbus_service;
 mod deps;
 mod detect;
 mod hotkey;
 mod naming;
 mod notify;
 mod recorder;
+mod tray;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // `screenshot-daemon trigger <action>` — thin D-Bus client used by
+    // compositor hotkey bindings (e.g. Sway bindsym). Must run before
+    // anything else so it stays fast and side-effect-free.
+    let argv: Vec<String> = std::env::args().collect();
+    if argv.get(1).map(String::as_str) == Some("trigger") {
+        let action = argv.get(2).map(String::as_str).unwrap_or("");
+        if let Err(e) = cli_trigger::run(action).await {
+            eprintln!("screenshot-daemon trigger: {e:#}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let config = config::Config::load()?;
@@ -61,6 +79,37 @@ async fn main() -> anyhow::Result<()> {
 
     // mpsc channel for hotkey events (each event consumed once)
     let (tx, mut rx) = tokio::sync::mpsc::channel::<hotkey::HotkeyAction>(4);
+
+    // Spawn the system tray (StatusNotifierItem on the session D-Bus). The
+    // tray runs in ksni's internal event loop; menu actions are dispatched
+    // back here through `tx` and the "Quit" item signals `shutdown`.
+    let tray = tray::ScreenshotTray::new(tx.clone(), shutdown.clone());
+    let _tray_handle = match tray.spawn().await {
+        Ok(handle) => {
+            log::info!("system tray registered");
+            Some(handle)
+        }
+        Err(e) => {
+            log::warn!("failed to register system tray: {e}");
+            None
+        }
+    };
+
+    // Expose a session D-Bus service so compositor-level hotkeys (Sway
+    // bindsym) can trigger captures without raw evdev, which is starved by
+    // Sway's exclusive EVIOCGRAB on keyboards. The connection must be held
+    // for the lifetime of the main loop — dropping it would unregister the
+    // object and release the name.
+    let _dbus_connection = match dbus_service::register(tx.clone()).await {
+        Ok(conn) => {
+            log::info!("D-Bus service registered: org.screenshot_daemon.Service1");
+            Some(conn)
+        }
+        Err(e) => {
+            log::warn!("failed to register D-Bus service: {e}");
+            None
+        }
+    };
 
     let hotkeys_clone = hotkeys.clone();
     std::thread::spawn(move || {
@@ -119,11 +168,21 @@ async fn main() -> anyhow::Result<()> {
                             }
                             Err(e) => {
                                 log::error!("region capture failed: {e}");
-                                if let Err(ne) = notify::send_notification(
-                                    "Screenshot failed",
-                                    &e.to_string(),
-                                ).await {
-                                    log::warn!("notification failed: {ne}");
+                                // capi_runtime::LibLoadError already fired a
+                                // specific D-Bus notification at construction
+                                // time — skip the generic one to avoid duplicates.
+                                if e
+                                    .downcast_ref::<capi_runtime::LibLoadError>()
+                                    .is_none()
+                                {
+                                    if let Err(ne) = notify::send_notification(
+                                        "Screenshot failed",
+                                        &e.to_string(),
+                                    )
+                                    .await
+                                    {
+                                        log::warn!("notification failed: {ne}");
+                                    }
                                 }
                             }
                         }
@@ -186,6 +245,22 @@ async fn main() -> anyhow::Result<()> {
                                 }
                                 Err(e) => {
                                     log::error!("record region selection failed: {e}");
+                                    // capi_runtime::LibLoadError already fired a
+                                    // specific D-Bus notification — skip the
+                                    // generic one to avoid duplicates.
+                                    if e
+                                        .downcast_ref::<capi_runtime::LibLoadError>()
+                                        .is_none()
+                                    {
+                                        if let Err(ne) = notify::send_notification(
+                                            "Recording failed",
+                                            &e.to_string(),
+                                        )
+                                        .await
+                                        {
+                                            log::warn!("notification failed: {ne}");
+                                        }
+                                    }
                                 }
                             }
                         }

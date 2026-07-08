@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- Blue rounded square background -->
+  <rect x="4" y="4" width="56" height="56" rx="12" fill="#2563eb"/>
+  <!-- Camera body -->
+  <rect x="14" y="20" width="36" height="26" rx="3" fill="#ffffff"/>
+  <!-- Camera top (viewfinder bump) -->
+  <rect x="24" y="16" width="16" height="6" rx="1" fill="#ffffff"/>
+  <!-- Lens outer ring -->
+  <circle cx="32" cy="33" r="8" fill="#2563eb"/>
+  <!-- Lens inner -->
+  <circle cx="32" cy="33" r="4" fill="#ffffff"/>
+  <!-- Flash indicator dot -->
+  <circle cx="46" cy="26" r="1.5" fill="#2563eb"/>
+</svg>
