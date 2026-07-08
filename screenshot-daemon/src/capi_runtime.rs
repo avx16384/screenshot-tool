@@ -1,42 +1,40 @@
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::fmt;
 use std::os::raw::{c_char, c_int};
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
-type SelectorRunFn =
-    unsafe extern "C" fn(*const c_char, *const c_char, bool, extern "C" fn(*const c_char)) -> c_int;
 type OverlayRunFn =
     unsafe extern "C" fn(i32, i32, u32, u32, bool, extern "C" fn(*const c_char)) -> c_int;
 type OverlayRunWithConfigFn =
     unsafe extern "C" fn(i32, i32, u32, u32, bool, bool, extern "C" fn(*const c_char)) -> c_int;
 type OverlayRequestStopFn = unsafe extern "C" fn();
 
-/// Which private C API library failed to load.
+/// The private C API library kind that failed to load.
+///
+/// Only the region-overlay library is loaded via `dlopen` by this daemon
+/// (the region *selector* is now spawned as a subprocess — see
+/// `selector_proc` — so it has no in-process `dlopen` path here).
 #[derive(Debug, Clone, Copy)]
 pub enum LibKind {
-    Selector,
     Overlay,
 }
 
 impl LibKind {
     fn label(&self) -> &'static str {
         match self {
-            LibKind::Selector => "region-selector",
             LibKind::Overlay => "region-overlay",
         }
     }
 
     fn summary(&self) -> &'static str {
         match self {
-            LibKind::Selector => "Region selector library missing or broken",
             LibKind::Overlay => "Region overlay library missing or broken",
         }
     }
 
     fn env_var(&self) -> &'static str {
         match self {
-            LibKind::Selector => "SCREENSHOT_DAEMON_SELECTOR_CAPI",
             LibKind::Overlay => "SCREENSHOT_DAEMON_OVERLAY_CAPI",
         }
     }
@@ -117,18 +115,8 @@ impl LibLoadError {
     }
 }
 
-static SELECTOR_RESULT: OnceLock<Mutex<Option<String>>> = OnceLock::new();
 static OVERLAY_SENDER: OnceLock<Mutex<Option<tokio::sync::mpsc::UnboundedSender<String>>>> =
     OnceLock::new();
-
-extern "C" fn selector_callback(message: *const c_char) {
-    if let Some(message) = read_message(message) {
-        let slot = SELECTOR_RESULT.get_or_init(|| Mutex::new(None));
-        if let Ok(mut slot) = slot.lock() {
-            *slot = Some(message);
-        }
-    }
-}
 
 extern "C" fn overlay_callback(message: *const c_char) {
     if let Some(message) = read_message(message) {
@@ -139,46 +127,6 @@ extern "C" fn overlay_callback(message: *const c_char) {
             }
         }
     }
-}
-
-pub fn run_region_selector(
-    output_path: Option<&std::path::Path>,
-    background_path: Option<&std::path::Path>,
-    record_mode: bool,
-) -> anyhow::Result<Option<String>> {
-    let lib_path = selector_capi_path();
-    let output = path_to_cstring(output_path)?;
-    let background = path_to_cstring(background_path)?;
-
-    let slot = SELECTOR_RESULT.get_or_init(|| Mutex::new(None));
-    if let Ok(mut slot) = slot.lock() {
-        *slot = None;
-    }
-
-    let status = unsafe {
-        let library = libloading::Library::new(&lib_path)
-            .map_err(|error| LibLoadError::new(LibKind::Selector, lib_path.clone(), error))?;
-        let run: libloading::Symbol<SelectorRunFn> = library
-            .get(b"screenshot_region_selector_run")
-            .map_err(|error| LibLoadError::new(LibKind::Selector, lib_path.clone(), error))?;
-        run(
-            output
-                .as_ref()
-                .map_or(std::ptr::null(), |value| value.as_ptr()),
-            background
-                .as_ref()
-                .map_or(std::ptr::null(), |value| value.as_ptr()),
-            record_mode,
-            selector_callback,
-        )
-    };
-
-    if status != 0 {
-        anyhow::bail!("selector capi returned status {status}");
-    }
-
-    let slot = SELECTOR_RESULT.get_or_init(|| Mutex::new(None));
-    Ok(slot.lock().ok().and_then(|mut slot| slot.take()))
 }
 
 pub fn run_record_overlay(
@@ -248,12 +196,6 @@ pub fn request_record_overlay_stop() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn selector_capi_path() -> PathBuf {
-    std::env::var_os("SCREENSHOT_DAEMON_SELECTOR_CAPI")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| current_exe_dir().join("libregion_selector.so"))
-}
-
 fn overlay_capi_path() -> PathBuf {
     std::env::var_os("SCREENSHOT_DAEMON_OVERLAY_CAPI")
         .map(PathBuf::from)
@@ -265,14 +207,6 @@ fn current_exe_dir() -> PathBuf {
         .ok()
         .and_then(|path| path.parent().map(ToOwned::to_owned))
         .unwrap_or_else(|| PathBuf::from("."))
-}
-
-fn path_to_cstring(path: Option<&std::path::Path>) -> anyhow::Result<Option<CString>> {
-    path.map(|path| {
-        CString::new(path.to_string_lossy().as_bytes())
-            .map_err(|_| anyhow::anyhow!("path contains nul byte: {}", path.display()))
-    })
-    .transpose()
 }
 
 fn read_message(message: *const c_char) -> Option<String> {

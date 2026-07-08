@@ -16,6 +16,7 @@ mod hotkey;
 mod naming;
 mod notify;
 mod recorder;
+mod selector_proc;
 mod tray;
 
 #[tokio::main]

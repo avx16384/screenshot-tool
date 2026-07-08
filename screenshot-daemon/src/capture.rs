@@ -74,11 +74,12 @@ pub async fn capture_region(
 
     let path = path.to_path_buf();
     let bg_arg = has_bg.then(|| bg_path.clone());
-    let selector_result = tokio::task::spawn_blocking(move || {
-        crate::capi_runtime::run_region_selector(Some(&path), bg_arg.as_deref(), false)
-    })
-    .await
-    .map_err(|error| anyhow::anyhow!("selector capi task failed: {error}"))??;
+    // Spawn the `region-selector` binary as a subprocess (not in-process
+    // dlopen). winit's `EventLoop` can only be created once per process, so
+    // an in-process selector breaks on the second capture. A fresh child
+    // process gets a fresh `EventLoop` every time.
+    let selector_result =
+        crate::selector_proc::run(Some(&path), bg_arg.as_deref(), false).await?;
     let _ = std::fs::remove_file(&bg_path);
 
     let Some(stdout) = selector_result else {
@@ -123,11 +124,10 @@ pub async fn select_record_region(
     };
 
     let bg_arg = has_bg.then(|| bg_path.clone());
-    let selector_result = tokio::task::spawn_blocking(move || {
-        crate::capi_runtime::run_region_selector(None, bg_arg.as_deref(), true)
-    })
-    .await
-    .map_err(|error| anyhow::anyhow!("selector capi task failed: {error}"))??;
+    // Subprocess (see `capture_region`): a fresh child process per capture
+    // avoids the winit one-`EventLoop`-per-process limit.
+    let selector_result =
+        crate::selector_proc::run(None, bg_arg.as_deref(), true).await?;
     let _ = std::fs::remove_file(&bg_path);
 
     let Some(stdout) = selector_result else {
